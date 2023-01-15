@@ -162,3 +162,50 @@ def repo_default_config():
 
     return ret
 
+
+# Where should this code go? This is a strange place to put it.
+argsp = argsubparsers.add_parser("init", help="Initialize a new, empty repository.")
+
+# I'd like to better understand these arguments to the sub parser.
+# Also, how many layers of sub parsers can we add? How does that work?
+argsp.add_argument(
+    "path",
+    metavar="directory",
+    nargs="?",
+    default=".",
+    help="Where to create the repository."
+)
+
+def cmd_init(args):
+    repo_create(args.path)
+
+# at this point, I can execute
+# ./wyag init [path]
+
+
+def repo_find(path=".", required=True) -> Optional[GitRepository]:
+    """Find the root path of the current repo."""
+
+    # what's this? Returns the canonical path, eliminating any symbolic links, if any
+    # Behaves differently across OSs. This might be why wyag doesn't explicitly support Windows?
+    path = os.path.realpath(path)
+
+    # Interesting... so we instantiate a new object each time we do something
+    if os.path.isdir(os.path.join(path, ".git")):
+        return GitRepository(path)
+
+    # if we haven't returned, recurse in parent
+    parent = os.path.realpath(os.path.join(path, "..")) # <-- didn't know you could do that.
+
+    if parent == path:
+        # Base case
+        # os.path.join("/", "..") == "/":
+        # If parent==path, then path is root
+        if required:
+            raise Exception("No git directory.")
+        else:
+            return None
+    
+    # Recursive case
+    return repo_find(parent, required)
+
