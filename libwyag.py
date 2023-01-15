@@ -7,6 +7,7 @@ from math import ceil
 import os
 import re
 import sys
+from typing import Optional, List
 import zlib
 
 argparser = argparse.ArgumentParser(description="The stupidest content tracker")
@@ -39,5 +40,172 @@ def main(argv=sys.argv[1:]):
     elif args.command == "tag"          : cmd_tag(args)
 
 
+class GitRepository(object):
+    """A git repository"""
 
+    worktree = None
+    gitdir = None
+    conf = None
+
+    def __init__(self, path, force=False):
+        self.worktree = path
+        self.gitdir = os.path.join(path, ".git")
+
+        if not (force or os.path.isdir(self.gitdir)):
+            raise Exception("Not a Git repository %s" % path)
+
+        # Read configuration file in .git/config
+        self.conf = configparser.ConfigParser()
+        cf = repo_file(self, "config")
+
+        if cf and os.path.exists(cf):
+            self.conf.read([cf])
+        elif not force:
+            raise Exception("Configuration file missing")
+        
+        if not force:
+            vers = int(self.conf.get("core", "repositoryformatversion"))
+            if vers != 0:
+                raise Exception("Unsupported repositoryformatversion %s" % vers)
+
+
+
+
+# creating some file/path utilities
+
+def repo_path(repo, *path) -> str:
+    """Compute path under repo's gitdir."""
+    return os.path.join(repo.gitdir, *path)
+
+
+
+# It will be interesting to see where/why this is useful..
+def repo_file(repo, *path, mkdir=False) -> str:
+    """
+    Same as repo_path, but create dirname(*path) if absent.
+    Will only create the path up to but not including the last entry in *path.
+    For example:
+    repo_file(r, \"refs\", \"remotes\", \"origin\", \"HEAD\") will
+    create .git/refs/remotes/origin.
+    """
+
+    if repo_dir(repo, *path[:-1], mkdir=mkdir):
+        return repo_path(repo, *path)
+
+
+
+def repo_dir(repo, *path, mkdir=False) -> Optional[str]:
+    """
+    Same as repo_path, but mkdir *path if absent if mkdir.
+    Will return a str of the path if it creates one.
+    """
+
+    path = repo_path(repo, *path)
+
+    if os.path.exists(path):
+        if (os.path.isdir(path)):
+            return path
+        else:
+            raise Exception("Not a directory %s" % path)
+    
+    if mkdir:
+        os.makedirs(path)
+        return path
+    else:
+        return None
+
+
+def repo_create(path):
+    """Create a new repository at path."""
+
+    # when we create the repo with this function, we use the force
+    # so we bypass all of the checks.
+    repo = GitRepository(path, True)
+
+    # First, we make sure the path either doesn't exist or is an empty dir.
+    if os.path.exists(repo.worktree):
+        if not os.path.isdir(repo.worktree):
+            raise Exception ("%s is not a directory!" % path)
+        if os.listdir(repo.worktree):
+            raise Exception ("%s is not empty!" % path)
+    else:
+        os.makedirs(repo.worktree)
+
+    assert(repo_dir(repo, "branches", mkdir=True))
+    assert(repo_dir(repo, "branches", mkdir=True))
+    assert(repo_dir(repo, "refs", "tags", mkdir=True))
+    assert(repo_dir(repo, "refs", "heads", mkdir=True))
+
+    # .git/description
+    with open(repo_file(repo, "description"), "w") as f:
+        f.write("Unnamed repository; edit this file 'description' to name the repository.\n")
+    
+    # .git/HEAD
+    with open(repo_file(repo, "HEAD"), "w") as f:
+        f.write("ref: refs/heads/master\n")
+    
+    with open(repo_file(repo, "config"), "w") as f:
+        config = repo_default_config()
+        config.write(f)
+    
+    return repo
+
+
+
+def repo_default_config():
+    ret = configparser.ConfigParser()
+
+    ret.add_section("core")
+    ret.set("core", "repositoryformatversion", "0")
+    ret.set("core", "filemode", "false")
+    ret.set("core", "bare", "false")
+
+    return ret
+
+
+# Where should this code go? This is a strange place to put it.
+argsp = argsubparsers.add_parser("init", help="Initialize a new, empty repository.")
+
+# I'd like to better understand these arguments to the sub parser.
+# Also, how many layers of sub parsers can we add? How does that work?
+argsp.add_argument(
+    "path",
+    metavar="directory",
+    nargs="?",
+    default=".",
+    help="Where to create the repository."
+)
+
+def cmd_init(args):
+    repo_create(args.path)
+
+# at this point, I can execute
+# ./wyag init [path]
+
+
+def repo_find(path=".", required=True) -> Optional[GitRepository]:
+    """Find the root path of the current repo."""
+
+    # what's this? Returns the canonical path, eliminating any symbolic links, if any
+    # Behaves differently across OSs. This might be why wyag doesn't explicitly support Windows?
+    path = os.path.realpath(path)
+
+    # Interesting... so we instantiate a new object each time we do something
+    if os.path.isdir(os.path.join(path, ".git")):
+        return GitRepository(path)
+
+    # if we haven't returned, recurse in parent
+    parent = os.path.realpath(os.path.join(path, "..")) # <-- didn't know you could do that.
+
+    if parent == path:
+        # Base case
+        # os.path.join("/", "..") == "/":
+        # If parent==path, then path is root
+        if required:
+            raise Exception("No git directory.")
+        else:
+            return None
+    
+    # Recursive case
+    return repo_find(parent, required)
 
