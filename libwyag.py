@@ -62,7 +62,7 @@ class GitRepository(object):
             self.conf.read([cf])
         elif not force:
             raise Exception("Configuration file missing")
-        
+
         if not force:
             vers = int(self.conf.get("core", "repositoryformatversion"))
             if vers != 0:
@@ -139,15 +139,15 @@ def repo_create(path):
     # .git/description
     with open(repo_file(repo, "description"), "w") as f:
         f.write("Unnamed repository; edit this file 'description' to name the repository.\n")
-    
+
     # .git/HEAD
     with open(repo_file(repo, "HEAD"), "w") as f:
         f.write("ref: refs/heads/master\n")
-    
+
     with open(repo_file(repo, "config"), "w") as f:
         config = repo_default_config()
         config.write(f)
-    
+
     return repo
 
 
@@ -205,7 +205,7 @@ def repo_find(path=".", required=True) -> Optional[GitRepository]:
             raise Exception("No git directory.")
         else:
             return None
-    
+
     # Recursive case
     return repo_find(parent, required)
 
@@ -213,13 +213,13 @@ def repo_find(path=".", required=True) -> Optional[GitRepository]:
 class GitObject(object):
 
     # (I'm not defining class variables...)
-    
+
     def __init__(self, repo, data=None):
         self.repo=repo
 
         if data != None:
             self.deserialize(data)
-    
+
     def serialize(self):
         """
         This function MUST be implemented by subclasses.
@@ -228,7 +228,7 @@ class GitObject(object):
         exactly that means depend on each subclass.
         """
         raise Exception("Unimplemented!")
-    
+
     def deserialize(self, data):
         raise Exception("Unimplemented!")
 
@@ -269,4 +269,23 @@ def object_read(repo, sha):
 # TODO: this is a placeholder for now
 def object_find(repo, name, fmt=None, follow=True):
     return name
+
+
+def object_write(obj, actually_write=True):
+    # Serialize object data
+    data = obj.serialize()
+    # Add header
+    result = obj.fmt + b' ' + str(len(data)).encode() + b'\x00' + data
+    # Compute hash
+    sha = hashlib.sha1(result).hexdigest()
+
+    if actually_write:
+        # Compute path
+        path=repo_file(obj.repo, "objects", sha[0:2], sha[2:], mkdir=actually_write)
+
+        with open(path, "wb") as f:
+            # Compress and write
+            f.write(zlib.compress(result))
+
+    return sha
 
