@@ -1,5 +1,13 @@
 
-from libwyag import repo_find
+from libwyag import repo_find, kvlm_parse
+
+# Test 1: walk through kvlm_parse
+from data import commit
+dct = kvlm_parse(commit)
+print(dct)
+print("catch")
+
+
 
 
 # Test 2: debugging repo_find

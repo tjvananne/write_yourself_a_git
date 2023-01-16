@@ -386,3 +386,91 @@ def object_hash(fd, fmt, repo=None):
     return object_write(obj, repo)
 
 
+
+def kvlm_parse(raw, start=0, dct=None):
+    if not dct:
+        dct = collections.OrderedDict()
+        # You CANNOT declare the argument as dct=OrderedDict() or all
+        # calls to the functions will endlessly grow the same dict.
+    
+    # We search for the next space and the next newline
+    spc = raw.find(b' ', start)
+    nl = raw.find(b'\n', start)
+
+    # If space appareas before newline, we have a keyword.
+
+    # Base case
+    # =========
+    # If newline appears first (or there's no space at all, in which
+    # case find returns -1), we assume a blank line. A blank line
+    # means the remainder of the data is the message.
+    if (spc < 0) or (nl < spc):
+        assert(nl == start)
+        dct[b''] = raw[start+1:]
+        return dct
+    
+    # Recursive case
+    # ==============
+    # We read a key-value pair and recurse for the next.
+    key = raw[start:spc]
+
+    # Find the end of the value. Continuation lines begin with a
+    # space, so we loop until we find a "\n" not followed by a space.
+    end = start
+    while True:
+        end = raw.find(b'\n', end+1)
+        # ord() is used because indexing into bytes produces ints
+        # `ord(' ')` is more descriptive than `32`
+        if raw[end+1] != ord(' '): break
+
+    # Grab the value
+    # Also, drop the leading space on continuation lines
+    value = raw[spc+1:end].replace(b'\n ', b'\n')
+
+    # Don't overwrite existing data contents
+    # (This is where I wish we could mix DefaultDict and OrderedDict)
+    # Question: why are we putting both the key and the value in a list
+    # as the value for each key? Why not just key/value?
+    if key in dct:
+        if isinstance(dct[key], list):
+            dct[key].append(value) # <-- under what circumstance does this run?
+        else:
+            dct[key] = [ dct[key], value ]
+    else:
+        dct[key]=value
+    
+    return kvlm_parse(raw, start=end+1, dct=dct)
+
+
+def kvlm_serialize(kvlm):
+    ret = b''
+
+    # Output fields
+    for k in kvlm.keys():
+        # Skip the message itself
+        if k == b'': continue
+        val = kvlm[k]
+        # Normalize to a list
+        if type(val) != list:
+            val = [ val ]
+        
+        for v in val:
+            ret += k + b' ' + (v.replace(b'\n', b'\n ')) + b'\n'
+    
+    # Append message
+    ret += b'\n' + kvlm[b'']
+
+    return ret
+
+
+class GitCommit(GitObject):
+    fmt=b'commit'
+
+    def deserialize(self, data):
+        self.kvlm = kvlm_parse(data)
+    
+    def serialize(self):
+        return kvlm_serialize(self.kvlm)
+
+
+
